@@ -146,6 +146,3 @@ fn main() {
 - The `save` command saves the log to a text file and automatically creates missing directories.
 - The `autosave on` command first saves the entire current log, then automatically appends each new line.
 
----
-
-**[По-русски](README.md)**
