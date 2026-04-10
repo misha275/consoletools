@@ -1,30 +1,29 @@
 [![GitHub](https://img.shields.io/badge/GitHub-consoletools-blue?logo=github)](https://github.com/yourname/consoletools)
 [![Crates.io](https://img.shields.io/crates/v/consoletools.svg)](https://crates.io/crates/consoletools)
-[![Docs.rs](https://docs.rs/consoletools/badge.svg)](https://docs.rs/consoletools)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 # consoletools
 
-[ **English**](README_EN.md)
+[ **Russian**](README_RU.md)
 
-Интерактивная консоль для терминала с постоянной строкой ввода `>>`, выводом сообщений выше этой строки и регистрацией команд.
+An interactive terminal console with a persistent input line `>>`, scrolling message output above that line, and command registration support.
 
-## Модель форматирования
+## Formatting Model
 
-В библиотеке есть только 3 фиксированных базовых цвета для встроенных уровней вывода:
+The library has only 3 fixed base colors for built-in output levels:
 
 - `BaseColor::Log`
 - `BaseColor::Ok`
 - `BaseColor::Err`
 
-Сами базовые цвета не расширяются и не переопределяются. Для пользовательских форматов есть отдельная палитра `CustomColor`, из которой можно собрать любое количество схем вывода.
+The base colors themselves are immutable and cannot be extended or overridden. For custom formats, there is a separate `CustomColor` palette from which you can build any number of output schemes.
 
-Доступные `CustomColor`:
+Available `CustomColor`:
 
 - `Black`, `Red`, `Green`, `Yellow`, `Blue`, `Magenta`, `Cyan`, `White`
 - `BrightBlack`, `BrightRed`, `BrightGreen`, `BrightYellow`, `BrightBlue`, `BrightMagenta`, `BrightCyan`, `BrightWhite`
 
-Каждый формат может включать:
+Each format can include:
 
 - `bold`
 - `italic`
@@ -32,18 +31,18 @@
 - `underline`
 - `reverse`
 - `strike`
-- цвет из `CustomColor`
+- a color from `CustomColor`
 
-Форматы регистрируются по имени и затем используются в макросах и функциях вывода. Базовые `log/ok/err` остаются фиксированными и через `register_output_format` не меняются.
+Formats are registered by name and then used in output macros and functions. The base `log/ok/err` remain fixed and cannot be changed via `register_output_format`.
 
-## Установка
+## Installation
 
 ```toml
 [dependencies]
 consoletools = { path = "." }
 ```
 
-## Быстрый старт
+## Quick Start
 
 ```rust
 use consoletools::{
@@ -84,65 +83,69 @@ fn main() {
         }
     });
 
-    console.add_command("echo", "Печатает переданный текст", |args| {
+    console.add_command("echo", "Print the provided text", |args| {
         if args.is_empty() {
-            CommandOutput::Error("Использование: echo <текст>".to_string())
+            CommandOutput::Error("Usage: echo <text>".to_string())
         } else {
             CommandOutput::Info(args.join(" "))
         }
     });
 
-    console.add_command("sum", "Суммирует числа", |args| {
+    console.add_command("sum", "Sum numbers", |args| {
         let mut total = 0.0_f64;
         for arg in args {
             match arg.parse::<f64>() {
                 Ok(v) => total += v,
-                Err(_) => return CommandOutput::Error(format!("Не число: {}", arg)),
+                Err(_) => return CommandOutput::Error(format!("Not a number: {}", arg)),
             }
         }
-        CommandOutput::Success(format!("Сумма: {}", total))
+        CommandOutput::Success(format!("Sum: {}", total))
     });
 
     if let Err(err) = console.run() {
-        eprintln!("Ошибка консоли: {}", err);
+        eprintln!("Console error: {}", err);
     }
 }
 ```
 
-## Публичный API
+## Public API
 
-- `CommandConsole::new(prompt)` - создать консоль
-- `CommandConsole::add_command(name, description, handler)` - зарегистрировать команду
-- `CommandConsole::handle()` - получить потокобезопасный handle для фоновых потоков
-- `CommandConsole::run()` - запустить цикл ввода и вывода
-- `CommandConsole::save_to_file(path)` - сохранить текущий лог консоли в файл
-- `CommandConsole::enable_autosave(path)` - включить динамическое сохранение новых строк
-- `CommandConsole::disable_autosave()` - выключить динамическое сохранение
-- `install_global_console_handle(handle)` - включить макросы вывода
-- `register_output_format(name, format) -> bool` - создать или заменить пользовательский формат (вернет `false` для `log/ok/err`)
-- `TextFormat::new(BaseColor::...)` - создать формат на базе одного из 3 фиксированных цветов
-- `TextFormat::custom(CustomColor::...)` - создать формат на базе расширенной палитры
-- `TextFormat::bold/italic/dim/underline/reverse/strike(...)` - настроить стили
-- `console_write_log/ok/err(text)` - прямой вывод по уровням
-- `console_write_format(name, text)` - вывод через любой зарегистрированный формат
-- `cprintln_log!`, `cprintln_ok!`, `cprintln_err!` - макросы вывода по уровням
-- `cprintln_fmt!(name, ...)` - макрос вывода через любой формат
-- `cprint!` - потокобезопасный вывод без перевода строки
+- `CommandConsole::new(prompt)` - create a console
+- `CommandConsole::add_command(name, description, handler)` - register a command
+- `CommandConsole::handle()` - get a thread-safe handle for background threads
+- `CommandConsole::run()` - start the input and output loop
+- `CommandConsole::save_to_file(path)` - save the current console log to a file
+- `CommandConsole::enable_autosave(path)` - enable dynamic saving of new lines
+- `CommandConsole::disable_autosave()` - disable dynamic saving
+- `install_global_console_handle(handle)` - enable output macros
+- `register_output_format(name, format) -> bool` - create or replace a custom format (returns `false` for `log/ok/err`)
+- `TextFormat::new(BaseColor::...)` - create a format based on one of the 3 fixed colors
+- `TextFormat::custom(CustomColor::...)` - create a format based on the extended palette
+- `TextFormat::bold/italic/dim/underline/reverse/strike(...)` - configure styles
+- `console_write_log/ok/err(text)` - direct output by level
+- `console_write_format(name, text)` - output through any registered format
+- `cprintln_log!`, `cprintln_ok!`, `cprintln_err!` - output macros by level
+- `cprintln_fmt!(name, ...)` - output macro through any format
+- `cprint!` - thread-safe output without line break
 
-## Встроенные команды
+## Built-in Commands
 
-- `help` - показать список команд
-- `clear` - очистить лог
-- `save <путь/имя_файла>` - сохранить текущий лог в файл
-- `autosave on <путь/имя_файла>` - включить динамическое сохранение
-- `autosave off` - выключить динамическое сохранение
-- `exit` или `quit` - выход
+- `help` - show help
+- `clear` - clear the log
+- `save <path/filename>` - save the current log to a file
+- `autosave on <path/filename>` - enable dynamic saving
+- `autosave off` - disable dynamic saving
+- `exit` or `quit` - exit
 
-## Примечания
+## Notes
 
-- Перед использованием `cprint!` и макросов `cprintln_*` нужно один раз вызвать `install_global_console_handle`.
-- Базовые цвета `log/ok/err` фиксированы и выбираются только через `BaseColor::Log`, `BaseColor::Ok` и `BaseColor::Err`.
-- Для пользовательских форматов используйте `CustomColor`, `register_output_format` и `cprintln_fmt!`.
-- Формат `prompt` можно переопределить через `register_output_format("prompt", ...)`.
-- Команда `save` сохраняет лог в текстовый файл и автоматически создает отсутствующие папки.
-- Команда `autosave on` сначала сохраняет текущий лог целиком, затем автоматически дописывает каждую новую строку.
+- Before using `cprint!` and `cprintln_*` macros, you need to call `install_global_console_handle` once.
+- Base colors `log/ok/err` are fixed and can only be selected via `BaseColor::Log`, `BaseColor::Ok`, and `BaseColor::Err`.
+- For custom formats, use `CustomColor`, `register_output_format`, and `cprintln_fmt!`.
+- The `prompt` format can be overridden via `register_output_format("prompt", ...)`.
+- The `save` command saves the log to a text file and automatically creates missing directories.
+- The `autosave on` command first saves the entire current log, then automatically appends each new line.
+
+---
+
+**[По-русски](README.md)**
