@@ -1,3 +1,8 @@
+[![GitHub](https://img.shields.io/badge/GitHub-consoletools-blue?logo=github)](https://github.com/yourname/consoletools)
+[![Crates.io](https://img.shields.io/crates/v/consoletools.svg)](https://crates.io/crates/consoletools)
+[![Docs.rs](https://docs.rs/consoletools/badge.svg)](https://docs.rs/consoletools)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 # consoletools
 
 Интерактивная консоль для терминала с постоянной строкой ввода `>>`, выводом сообщений выше этой строки и регистрацией команд.
