@@ -1,8 +1,7 @@
 use consoletools::{
 	install_global_console_handle, register_output_format, CommandConsole, CommandOutput,
-	CustomColor, TextFormat,
+	CustomColor, TextFormat, cprintln, format_ok, format_err, format_with,
 };
-use consoletools::{cprintln_err, cprintln_fmt, cprintln_log, cprintln_ok};
 use std::thread;
 use std::time::Duration;
 
@@ -31,41 +30,41 @@ fn main() {
 	thread::spawn(move || {
 		let mut tick: u64 = 1;
 		loop {
-			cprintln_log!("Фоновый поток: событие #{}", tick);
+			cprintln!("Background thread: event #{}", tick);
 			if tick % 5 == 0 {
-				cprintln_ok!("Фоновый поток активен");
+				cprintln!("{}", format_ok("Background thread active"));
 			}
 			if tick % 9 == 0 {
-				cprintln_err!("Тестовая ошибка от фонового потока");
+				cprintln!("{}", format_err("Test error from background thread"));
 			}
 			if tick % 7 == 0 {
-				cprintln_fmt!("event", "Событие с пользовательским форматом #{}", tick);
+				cprintln!("{}", format_with("event", format!("Event with custom format #{}", tick)));
 			}
 			if tick % 11 == 0 {
-				cprintln_fmt!("warning", "Пользовательский warning #{}", tick);
+				cprintln!("{}", format_with("warning", format!("Custom warning #{}", tick)));
 			}
 			if tick % 13 == 0 {
-				cprintln_fmt!("accent", "Акцентный формат #{}", tick);
+				cprintln!("{}", format_with("accent", format!("Accent format #{}", tick)));
 			}
 			if tick % 17 == 0 {
-				cprintln_fmt!("note", "Дополнительный формат #{}", tick);
+				cprintln!("{}", format_with("note", format!("Additional format #{}", tick)));
 			}
 			tick += 1;
 			thread::sleep(Duration::from_secs(2));
 		}
 	});
 
-	console.add_command("echo", "Печатает переданный текст", |args| {
+	console.add_command("echo", "Print the passed text", |args| {
 		if args.is_empty() {
-			CommandOutput::Error("Использование: echo <текст>".to_string())
+			CommandOutput::Error("Usage: echo <text>".to_string())
 		} else {
 			CommandOutput::Info(args.join(" "))
 		}
 	});
 
-	console.add_command("sum", "Суммирует числа: sum 1 2 3", |args| {
+	console.add_command("sum", "Sum numbers: sum 1 2 3", |args| {
 		if args.is_empty() {
-			return CommandOutput::Error("Использование: sum <n1> <n2> ...".to_string());
+			return CommandOutput::Error("Usage: sum <n1> <n2> ...".to_string());
 		}
 
 		let mut total = 0.0_f64;
@@ -73,19 +72,19 @@ fn main() {
 			match arg.parse::<f64>() {
 				Ok(value) => total += value,
 				Err(_) => {
-					return CommandOutput::Error(format!("Не число: {}", arg));
+					return CommandOutput::Error(format!("Not a number: {}", arg));
 				}
 			}
 		}
 
-		CommandOutput::Success(format!("Сумма: {}", total))
+		CommandOutput::Success(format!("Sum: {}", total))
 	});
 
-	console.add_command("about", "Информация о приложении", |_| {
-		CommandOutput::Info("consoletools: интерактивная командная консоль".to_string())
+	console.add_command("about", "Information about the application", |_| {
+		CommandOutput::Info("consoletools: interactive command console".to_string())
 	});
 
 	if let Err(err) = console.run() {
-		eprintln!("Ошибка консоли: {}", err);
+		eprintln!("Console error: {}", err);
 	}
 }

@@ -236,9 +236,64 @@ fn resolve_format(name: &str) -> TextFormat {
     }
 }
 
+/// Creates a custom text format with specified colors and text styling options.
+///
+/// # Arguments
+///
+/// * `text_color` - The color to apply to the main text (from `CustomColor` enum)
+/// * `text_formatting` - A closure that configures text styling (bold, italic, underline, etc.)
+/// * `param_color` - The color for parameter/placeholder text (from `CustomColor` enum)
+/// * `param_formatting` - A closure that configures styling for parameter text
+///
+/// # Returns
+///
+/// A `TextFormat` struct that can be registered and used for console output.
+///
+/// # Example
+///
+/// ```ignore
+/// let format = create_format(
+///     CustomColor::BrightGreen,
+///     |f| f.bold(true),
+///     CustomColor::Green,
+///     |f| f.dim(true)
+/// );
+/// register_output_format("custom", format);
+/// ```
+pub fn create_format<F1, F2>(
+    text_color: CustomColor,
+    text_formatting: F1,
+    param_color: CustomColor,
+    param_formatting: F2,
+) -> TextFormat
+where
+    F1: FnOnce(TextFormat) -> TextFormat,
+    F2: FnOnce(TextFormat) -> TextFormat,
+{
+    let _param_format = param_formatting(TextFormat::custom(param_color));
+    text_formatting(TextFormat::custom(text_color))
+}
+
 /// Register or replace a custom output format by name.
 ///
-/// Returns `false` if the name is reserved for fixed base outputs.
+/// Custom formats can be used with `cprintln_format()` or other format-aware functions.
+/// This function allows dynamic registration of named formats at runtime.
+///
+/// # Arguments
+///
+/// * `name` - The name identifier for this format (cannot be "log", "ok", or "err" - these are reserved)
+/// * `format` - The `TextFormat` structure defining color and styling
+///
+/// # Returns
+///
+/// Returns `true` if the format was successfully registered, `false` if the name is reserved.
+///
+/// # Example
+///
+/// ```ignore
+/// let format = TextFormat::custom(CustomColor::BrightBlue).bold(true);
+/// register_output_format("warning", format);
+/// ```
 pub fn register_output_format(name: impl Into<String>, format: TextFormat) -> bool {
     let name = name.into();
     if matches!(name.as_str(), "log" | "ok" | "err") {
@@ -253,7 +308,19 @@ pub fn register_output_format(name: impl Into<String>, format: TextFormat) -> bo
     false
 }
 
-/// Format a string with one of the registered output formats.
+/// Formats text with one of the registered output formats.
+///
+/// This is a low-level function used internally by the macro system.
+/// For most use cases, prefer using the macro equivalents like `cprintln_format!()`.
+///
+/// # Arguments
+///
+/// * `name` - The format name to apply ("log", "ok", "err", or a custom registered format)
+/// * `text` - The text to format
+///
+/// # Returns
+///
+/// A formatted string with ANSI color codes applied.
 pub fn format_output(name: &str, text: impl Into<String>) -> String {
     resolve_format(name).apply(&text.into())
 }
@@ -277,31 +344,58 @@ enum ConsoleEvent {
 }
 
 #[derive(Clone)]
-/// Thread-safe handle used to push log lines into the console from any thread.
+/// Thread-safe handle for sending log lines to the console from any thread.
+///
+/// `ConsoleHandle` can be cloned and shared across threads, allowing safe
+/// non-blocking communication with the main console. Messages are queued and
+/// processed by the console's event loop.
+///
+/// # Usage
+///
+/// Obtain a handle from `CommandConsole::handle()`, then use the `send()` method with formatting helpers:
+///
+/// ```ignore
+/// use consoletools::{format_ok, format_err, format_log};
+///
+/// let handle = console.handle();
+/// std::thread::spawn(move || {
+///     handle.send(format_log("Message from thread"));
+///     handle.send(format_ok("Operation completed"));
+///     handle.send(format_err("Error occurred"));
+/// });
+/// ```
 pub struct ConsoleHandle {
     sender: Sender<ConsoleEvent>,
 }
 
 impl ConsoleHandle {
-    /// Send a neutral message to the console.
-    pub fn info(&self, message: impl Into<String>) {
-        let _ = self.sender.send(ConsoleEvent::Line(base_output(BaseColor::Log, message)));
-    }
-
-    /// Send a success message to the console.
-    pub fn success(&self, message: impl Into<String>) {
-        let _ = self.sender.send(ConsoleEvent::Line(base_output(BaseColor::Ok, message)));
-    }
-
-    /// Send an error message to the console.
-    pub fn error(&self, message: impl Into<String>) {
-        let _ = self.sender.send(ConsoleEvent::Line(base_output(BaseColor::Err, message)));
+    /// Send a message to the console.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message to send. Use helper functions like `format_ok()`, `format_err()`
+    ///              to apply formatting with colors and styles.
+    pub fn send(&self, message: impl Into<String>) {
+        let _ = self.sender.send(ConsoleEvent::Line(message.into()));
     }
 }
 
 /// Install global output handle for console macros.
 ///
-/// Call this once before using cprint/cprintln or custom format macros.
+/// This function must be called once before using `cprint!()`, `cprintln!()` or any console output macros.
+/// It initializes the global message channel and format storage used by the console system.
+///
+/// # Arguments
+///
+/// * `handle` - A `ConsoleHandle` obtained from `CommandConsole::handle()` or created elsewhere
+///
+/// # Example
+///
+/// ```ignore
+/// let mut console = CommandConsole::new(">>");
+/// let handle = console.handle();
+/// install_global_console_handle(handle);
+/// ```
 pub fn install_global_console_handle(handle: ConsoleHandle) {
     let _ = GLOBAL_CONSOLE_HANDLE.set(handle);
     let _ = GLOBAL_PRINT_BUFFER.set(Mutex::new(String::new()));
@@ -314,7 +408,28 @@ fn send_rendered_line(line: String) {
     }
 }
 
-/// Low-level text writer used by cprint/cprintln.
+/// Low-level raw text writer for the `cprint!()` macro.
+///
+/// This function writes text without automatic newline, buffering lines until a newline character is encountered.
+/// When a newline is found, the line is rendered with the "log" format and sent to the console.
+/// This allows multi-part output on a single line using multiple `cprint!()` calls.
+///
+/// # Arguments
+///
+/// * `text` - The text to write to the console buffer
+///
+/// # Note
+///
+/// This is called automatically by the `cprint!()` macro. Direct usage is rarely needed.
+///
+/// # Example
+///
+/// ```ignore
+/// console_write_raw("Loading");
+/// console_write_raw(".");
+/// console_write_raw(".");
+/// console_write_raw(".\n"); // This triggers output as a single line: "Loading..."
+/// ```
 pub fn console_write_raw(text: &str) {
     if let Some(buffer_lock) = GLOBAL_PRINT_BUFFER.get() {
         let mut buffer = match buffer_lock.lock() {
@@ -342,27 +457,39 @@ pub fn console_write_raw(text: &str) {
     send_rendered_line(base_output(BaseColor::Log, text));
 }
 
-/// Send a neutral log line to the console.
+/// Sends a neutral/informational log line to the console.
+///
+/// This is the primary output function for neutral informational messages.
+/// It applies the "log" format (gray color by default) and sends the line to the console buffer.
+///
+/// # Arguments
+///
+/// * `text` - The message to display
+///
+/// # Example
+///
+/// ```ignore
+/// console_write_log("Application started");
+/// ```
 pub fn console_write_log(text: impl Into<String>) {
     send_rendered_line(base_output(BaseColor::Log, text));
 }
 
-/// Send a success line to the console.
-pub fn console_write_ok(text: impl Into<String>) {
-    send_rendered_line(base_output(BaseColor::Ok, text));
-}
 
-/// Send an error line to the console.
-pub fn console_write_err(text: impl Into<String>) {
-    send_rendered_line(base_output(BaseColor::Err, text));
-}
-
-/// Send a line using any registered format.
-pub fn console_write_format(format_name: &str, text: impl Into<String>) {
-    send_rendered_line(format_output(format_name, text));
-}
 
 #[macro_export]
+/// The primary console output macro for unformatted text.
+///
+/// This macro writes text without automatic newline, buffering output until a newline character is encountered.
+/// Useful for building lines incrementally: `cprint!("Loading"); cprint!("."); cprint!(".\n");`
+///
+/// # Example
+///
+/// ```ignore
+/// cprint!("Hello, ");
+/// cprint!("{}!", "world");
+/// cprint!("\n");
+/// ```
 macro_rules! cprint {
     ($($arg:tt)*) => {{
         $crate::core::console_write_raw(&format!($($arg)*));
@@ -370,6 +497,17 @@ macro_rules! cprint {
 }
 
 #[macro_export]
+/// The primary console output macro for complete lines with automatic newline.
+///
+/// This macro outputs a complete line with automatic newline and "log" format (gray color by default).
+/// For formatted output, use the provided helper functions like `cprintln_ok!()`, `cprintln_err!()`, etc.
+///
+/// # Example
+///
+/// ```ignore
+/// cprintln!("Application started");
+/// cprintln!("Value: {}", value);
+/// ```
 macro_rules! cprintln {
     () => {{
         $crate::core::console_write_log("");
@@ -379,45 +517,7 @@ macro_rules! cprintln {
     }};
 }
 
-#[macro_export]
-macro_rules! cprintln_log {
-    () => {{
-        $crate::core::console_write_log("");
-    }};
-    ($($arg:tt)*) => {{
-        $crate::core::console_write_log(format!($($arg)*));
-    }};
-}
 
-#[macro_export]
-macro_rules! cprintln_ok {
-    () => {{
-        $crate::core::console_write_ok("");
-    }};
-    ($($arg:tt)*) => {{
-        $crate::core::console_write_ok(format!($($arg)*));
-    }};
-}
-
-#[macro_export]
-macro_rules! cprintln_err {
-    () => {{
-        $crate::core::console_write_err("");
-    }};
-    ($($arg:tt)*) => {{
-        $crate::core::console_write_err(format!($($arg)*));
-    }};
-}
-
-#[macro_export]
-macro_rules! cprintln_fmt {
-    ($format_name:expr, $($arg:tt)*) => {{
-        $crate::core::console_write_format($format_name, format!($($arg)*));
-    }};
-    ($format_name:expr) => {{
-        $crate::core::console_write_format($format_name, "");
-    }};
-}
 
 struct RegisteredCommand {
     description: String,
@@ -435,7 +535,28 @@ pub struct CommandConsole {
 }
 
 impl CommandConsole {
-    /// Create interactive console with prompt, for example ">>".
+    /// Creates a new Console with the specified prompt text.
+    ///
+    /// The prompt will be displayed at the bottom of the console when waiting for user input.
+    /// Example prompts: ">>", ">", "cmd>", "shell#", etc.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - The prompt string to display (e.g., ">>")
+    ///
+    /// # Returns
+    ///
+    /// A new `CommandConsole` instance ready for command registration and execution.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut console = CommandConsole::new(">>");
+    /// console.add_command("help", "Show help", |args| {
+    ///     CommandOutput::Info("Help text here".to_string())
+    /// });
+    /// console.run()?;
+    /// ```
     pub fn new(prompt: &str) -> Self {
         let (event_sender, event_receiver) = mpsc::channel();
         let _ = formats_store();
@@ -451,14 +572,59 @@ impl CommandConsole {
         }
     }
 
-    /// Get a handle that can be used from other threads.
+    /// Returns a cloneable handle for sending messages to this console from other threads.
+    ///
+    /// The handle can be passed to other threads or async tasks to send log messages
+    /// back to the main console without blocking. This is useful for background operations,
+    /// worker threads, or async tasks that need to report their status.
+    ///
+    /// # Returns
+    ///
+    /// A `ConsoleHandle` that can be cloned and sent across thread boundaries.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use consoletools::{format_ok, format_log};
+    ///
+    /// let handle = console.handle();
+    /// std::thread::spawn(move || {
+    ///     handle.send(format_log("Processing..."));
+    ///     // ... do work ...
+    ///     handle.send(format_ok("Done!"));
+    /// });
+    /// ```
     pub fn handle(&self) -> ConsoleHandle {
         ConsoleHandle {
             sender: self.event_sender.clone(),
         }
     }
 
-    /// Register a command handler.
+    /// Registers a new command handler in the console.
+    ///
+    /// Commands can be invoked by users typing the command name and optional arguments.
+    /// The handler function receives the arguments as a slice of strings and returns
+    /// a `CommandOutput` indicating success, info, or error.
+    ///
+    /// Built-in commands: `help`, `clear`, `save`, `exit`, `quit`
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The command name (what user types to invoke it)
+    /// * `description` - A brief description shown in the help text
+    /// * `handler` - A function that processes the command, taking args and returning output
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// console.add_command("greet", "Greet someone", |args| {
+    ///     if args.is_empty() {
+    ///         CommandOutput::Error("Usage: greet <name>".to_string())
+    ///     } else {
+    ///         CommandOutput::Info(format!("Hello, {}!", args[0]))
+    ///     }
+    /// });
+    /// ```
     pub fn add_command<F>(&mut self, name: &str, description: &str, handler: F)
     where
         F: Fn(&[String]) -> CommandOutput + Send + Sync + 'static,
@@ -472,13 +638,34 @@ impl CommandConsole {
         );
     }
 
-    /// Start interactive event loop.
+    /// Starts the Console event loop.
+    ///
+    /// This function takes over the terminal, enabling raw mode and alternate screen.
+    /// It runs the console in a full-screen mode where users can interact with registered
+    /// commands, view logs, and navigate through console history.
+    ///
+    /// The loop continues until the user types "exit" or "quit", or presses Ctrl+C.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the console ran successfully, or an `io::Error` if terminal operations fail.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic, but returns errors from underlying terminal operations.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut console = CommandConsole::new(">>");
+    /// console.run()?; // Blocks until user exits
+    /// ```
     pub fn run(&mut self) -> io::Result<()> {
         let mut stdout = io::stdout();
         enable_raw_mode()?;
         execute!(stdout, EnterAlternateScreen, Hide)?;
 
-        self.push_info("Интерактивная консоль запущена. help - список команд, exit - выход.");
+        self.push_info("Console started. Type 'help' for commands, 'exit' to quit.");
         self.render(&mut stdout)?;
 
         let mut should_continue = true;
@@ -498,7 +685,7 @@ impl CommandConsole {
 
                     match key.code {
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                            self.push_error("Остановлено пользователем (Ctrl+C)");
+                            self.push_error("Interrupted by user (Ctrl+C)");
                             should_continue = false;
                         }
                         KeyCode::Char(ch) => self.input.push(ch),
@@ -529,9 +716,24 @@ impl CommandConsole {
         disable_raw_mode()
     }
 
-    /// Save current console log to a file.
+    /// Saves the entire console log to a file.
     ///
-    /// ANSI escape sequences are stripped from output for clean text logs.
+    /// All ANSI color codes are stripped from the output, producing clean plain-text logs.
+    /// Parent directories are created automatically if they don't exist.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path where the log should be saved
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the save succeeded, or an `io::Error` if file operations failed.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// console.save_to_file("logs/session.log")?;
+    /// ```
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         let path = path.as_ref();
 
@@ -550,9 +752,26 @@ impl CommandConsole {
         fs::write(path, content)
     }
 
-    /// Enable dynamic autosave for every new log line.
+    /// Enables dynamic autosave for the console log.
     ///
-    /// Existing log is saved immediately, then every next output line is appended.
+    /// When enabled, the existing log is saved immediately, and then every new output line
+    /// is appended to the file as it's generated. This allows capturing a live transcript
+    /// of console activity as it happens.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path for the autosave log
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if autosave was enabled successfully, or an `io::Error` if initial save failed.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// console.enable_autosave("logs/session.log")?;
+    /// // Now every console output is automatically saved
+    /// ```
     pub fn enable_autosave<P: AsRef<Path>>(&mut self, path: P) -> io::Result<()> {
         let path_buf = path.as_ref().to_path_buf();
         self.save_to_file(&path_buf)?;
@@ -560,7 +779,10 @@ impl CommandConsole {
         Ok(())
     }
 
-    /// Disable dynamic autosave.
+    /// Disables dynamic autosave for the console.
+    ///
+    /// After calling this, new console output will no longer be automatically saved.
+    /// Previously written logs remain in the file.
     pub fn disable_autosave(&mut self) {
         self.autosave_path = None;
     }
@@ -589,11 +811,11 @@ impl CommandConsole {
 
         match command {
             "exit" | "quit" => {
-                self.push_info("Выход из консоли");
+                self.push_info("Exiting console.");
                 false
             }
             "help" => {
-                self.push_info("Доступные команды:");
+                self.push_info("Available commands:");
                 let mut names: Vec<String> = self.commands.keys().cloned().collect();
                 names.sort();
 
@@ -605,12 +827,10 @@ impl CommandConsole {
                         ));
                     }
                 }
-                self.push_info("- help: показать список команд");
-                self.push_info("- clear: очистить экран вывода");
-                self.push_info("- save <путь/имя_файла>: сохранить лог консоли в файл");
-                self.push_info("- autosave on <путь/имя_файла>: включить динамическое сохранение");
-                self.push_info("- autosave off: выключить динамическое сохранение");
-                self.push_info("- exit/quit: выйти");
+                self.push_info("- help: show list of commands");
+                self.push_info("- clear: clear output");
+                self.push_info("- save <path/filename>: save console log to file");
+                self.push_info("- exit/quit: exit");
                 true
             }
             "clear" => {
@@ -619,47 +839,16 @@ impl CommandConsole {
             }
             "save" => {
                 if args.is_empty() {
-                    self.push_error("Использование: save <путь/имя_файла>");
+                    self.push_error("Usage: save <path/filename>");
                     return true;
                 }
 
                 let path = args.join(" ");
                 match self.save_to_file(&path) {
-                    Ok(_) => self.push_success(&format!("Лог сохранен в: {}", path)),
-                    Err(err) => self.push_error(&format!("Ошибка сохранения: {}", err)),
+                    Ok(_) => self.push_info(&format!("Log saved to: {}", path)),
+                    Err(err) => self.push_error(&format!("Save error: {}", err)),
                 }
                 true
-            }
-            "autosave" => {
-                let Some(mode) = args.first().map(String::as_str) else {
-                    self.push_error("Использование: autosave on <путь/имя_файла> | autosave off");
-                    return true;
-                };
-
-                match mode {
-                    "on" => {
-                        if args.len() < 2 {
-                            self.push_error("Использование: autosave on <путь/имя_файла>");
-                            return true;
-                        }
-
-                        let path = args[1..].join(" ");
-                        match self.enable_autosave(&path) {
-                            Ok(_) => self.push_success(&format!("Динамическое сохранение включено: {}", path)),
-                            Err(err) => self.push_error(&format!("Ошибка включения autosave: {}", err)),
-                        }
-                        true
-                    }
-                    "off" => {
-                        self.disable_autosave();
-                        self.push_success("Динамическое сохранение выключено");
-                        true
-                    }
-                    _ => {
-                        self.push_error("Использование: autosave on <путь/имя_файла> | autosave off");
-                        true
-                    }
-                }
             }
             _ => {
                 if let Some(cmd) = self.commands.get(command) {
@@ -669,7 +858,7 @@ impl CommandConsole {
                         CommandOutput::Error(msg) => self.push_error(&msg),
                     }
                 } else {
-                    self.push_error(&format!("Неизвестная команда: {}", command));
+                    self.push_error(&format!("Unknown command: {}", command));
                 }
                 true
             }
@@ -742,17 +931,143 @@ impl CommandConsole {
     }
 }
 
-/// Format helper for informational output.
+/// Formats text with the success (ok) format.
+///
+/// Returns a formatted string with green color and ANSI codes.
+/// Use with `cprintln!()` to output formatted text.
+///
+/// # Example
+///
+/// ```ignore
+/// cprintln!("{}", format_ok("Operation completed"));
+/// cprintln!("{}", format_ok("Saved 42 items"));
+/// ```
+pub fn format_ok(text: impl Into<String>) -> String {
+    base_output(BaseColor::Ok, text)
+}
+
+/// Formats text with the error format.
+///
+/// Returns a formatted string with red color and ANSI codes.
+/// Use with `cprintln!()` to output formatted text.
+///
+/// # Example
+///
+/// ```ignore
+/// cprintln!("{}", format_err("Error: file not found"));
+/// cprintln!("{}", format_err("Failed to load configuration"));
+/// ```
+pub fn format_err(text: impl Into<String>) -> String {
+    base_output(BaseColor::Err, text)
+}
+
+/// Formats text with the log (info) format.
+///
+/// Returns a formatted string with default color and ANSI codes.
+/// Use with `cprintln!()` to output formatted text.
+///
+/// # Example
+///
+/// ```ignore
+/// cprintln!("{}", format_log("Application started"));
+/// cprintln!("{}", format_log("Processing file"));
+/// ```
+pub fn format_log(text: impl Into<String>) -> String {
+    base_output(BaseColor::Log, text)
+}
+
+/// Formats text with a registered format by name.
+///
+/// Returns a formatted string with custom colors and styles applied.
+/// Use with `cprintln!()` to output formatted text.
+///
+/// # Arguments
+///
+/// * `format_name` - Name of the registered format ("log", "ok", "err", or custom)
+/// * `text` - The text to format
+///
+/// # Example
+///
+/// ```ignore
+/// cprintln!("{}", format_with("warning", "This action cannot be undone"));
+/// cprintln!("{}", format_with("custom_format", "Message"));
+/// ```
+pub fn format_with(format_name: &str, text: impl Into<String>) -> String {
+    format_output(format_name, text)
+}
+
+/// Formats a string with placeholders using the "ok" (success) format.
+///
+///
+/// This is a convenience function for creating formatted output with color-coded text and parameters.
+/// The input string should contain `{}` placeholders for where variables will be inserted.
+/// Main text parts are formatted in bold green, while variable values are shown in dim gray.
+///
+/// # Arguments
+///
+/// * `s` - A format string with `{}` placeholders
+/// * `vars` - An array of variable values to insert at each `{}` position
+///
+/// # Returns
+///
+/// A formatted string with ANSI codes applied.
+///
+/// # Example
+///
+/// ```ignore
+/// let output = color_fmt_ok("File {} saved in {}", &["config.txt", "/home/user"]);
+/// console_write_log(output);
+/// ```
 pub fn color_fmt_ok(s: &str, vars: &[&str]) -> String {
     color_fmt_impl(TextFormat::new(BaseColor::Ok).bold(true), s, vars)
 }
 
-/// Format helper for error output.
+/// Formats a string with placeholders using the "err" (error) format.
+///
+/// This is a convenience function for creating error messages with color-coded text and parameters.
+/// The input string should contain `{}` placeholders for where variables will be inserted.
+/// Main text parts are formatted in bold red, while variable values are shown in dim gray.
+///
+/// # Arguments
+///
+/// * `s` - A format string with `{}` placeholders
+/// * `vars` - An array of variable values to insert at each `{}` position
+///
+/// # Returns
+///
+/// A formatted string with ANSI codes applied.
+///
+/// # Example
+///
+/// ```ignore
+/// let output = color_fmt_err("Failed to load {}", &["config.txt"]);
+/// console_write_log(output);
+/// ```
 pub fn color_fmt_err(s: &str, vars: &[&str]) -> String {
     color_fmt_impl(TextFormat::new(BaseColor::Err).bold(true), s, vars)
 }
 
-/// Format helper for plain log output.
+/// Formats a string with placeholders using the "log" (info) format.
+///
+/// This is a convenience function for creating informational output with color-coded text and parameters.
+/// The input string should contain `{}` placeholders for where variables will be inserted.
+/// Main text parts are formatted in bold white/gray, while variable values are shown in dim gray.
+///
+/// # Arguments
+///
+/// * `s` - A format string with `{}` placeholders
+/// * `vars` - An array of variable values to insert at each `{}` position
+///
+/// # Returns
+///
+/// A formatted string with ANSI codes applied.
+///
+/// # Example
+///
+/// ```ignore
+/// let output = color_fmt_log("Processing file {}", &["data.json"]);
+/// console_write_log(output);
+/// ```
 pub fn color_fmt_log(s: &str, vars: &[&str]) -> String {
     color_fmt_impl(TextFormat::new(BaseColor::Log).bold(true), s, vars)
 }
